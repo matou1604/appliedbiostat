@@ -1,0 +1,276 @@
+---
+title: "Individual report"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: inline
+  markdown: 
+    wrap: 72
+date: "2024-04-09"
+---
+
+# Mathilde Morelli
+
+### Generic question
+Evaluate the impact the factors relating to presence/absence of a levee failure have.
+
+
+### Install packages
+
+```{r}
+#install.packages("PerformanceAnalytics")
+library(GGally)
+library(PerformanceAnalytics)
+library(ggplot2)
+
+```
+
+### Dataset: potato.dat - .txt info
+
+Dataset:  lmr_levee.dat (echec de digue)
+
+Source: A. Flor, N. Pinter, W.F. Remo (2010). "Evaluating Levee Failure Susceptibility on the Mississippi River Using Logistic Regression Analysis," Engineering Geology, Vol. 116, pp. 139-148.
+
+Description: Factors relating to presence/absence of a levee failure at a site on middle Mississippi River, with predictors:
+Site underlain by coarse-grain channel fill (sediment)
+Borrow pit indicator
+Meander location (1=Inside bend, 2=outside bend, 3=chute, 4=straight)
+channel width
+floodway width
+constriction factor
+land cover type (1=open water, 2=grassy, 3=agricultural, 4=forest)
+vegetative buffer width
+channel sinuosity 
+dredging intensity
+bank revetement
+
+Variables/Columns
+Failure   8  /* 1=Yes, 0=No  */
+year  12-16
+river mile   18-24
+sediments   32
+borrow pit    40
+meander     48
+channel width 50-56
+floodway width  58-64
+constriction factor  66-72
+land cover     80
+veg width    82-88
+sinuosity   90-96
+dredging    98-104
+revetement   112
+
+
+### Import data
+
+```{r}
+levee = read.table('https://users.stat.ufl.edu/~winner/data/mmr_levee.dat')
+
+names(levee)[1] <- "Failure"
+names(levee)[2] <- "year"
+names(levee)[3] <- "river_mile"
+names(levee)[4] <- "sediments"
+names(levee)[5] <- "borrow_pit"
+names(levee)[6] <- "meander"
+names(levee)[7] <- "channel_width"
+names(levee)[8] <- "floodway_width"
+names(levee)[9] <- "constriction_factor"
+names(levee)[10] <- "land_cover"
+names(levee)[11] <- "veg_width"
+names(levee)[12] <- "sinuosity"
+names(levee)[13] <- "dredging"
+names(levee)[14] <- "revetement"
+
+levee
+```
+
+## Pipeline
+1: fitting a multiple logistic regression model with both categorical and continuous independent variables
+2: conducting the likelihood ratio test for all effects
+3: computing confidence intervals for regression coefficients
+4: computing odds ratios along with their 95% confidence intervals
+5: computing various pseudo R-squares in logistic regression
+6: performing the Hosmer-Lemeshow Goodness of Fit test
+7: checking for potential confounding and interactions
+8: computing the ROC curve, including the area under the ROC curve of a logistic regression model.
+
+
+
+### Test whether dataset is balanced
+Here not categorical, so don't need to check if balanced for continuous/intensity values
+
+```{r}
+table(levee$Failure)
+table(levee$sediments)
+table(levee$borrow_pit)
+table(levee$meander)
+table(levee$land_cover)
+table(levee$revetement)
+```
+
+We can conclude that the data set is not balanced. 
+But we do have an even number of failures and non failures. So that's good.
+
+
+### Exploratory Data Analysis (EDA)
+Conditional density plots of the data: 
+
+```{r, fig.width=7, fig.height=3}
+# Continous and ratio data
+layout(matrix(1:3, ncol = 3))
+
+levee$Failure <- factor(levee$Failure,labels=c(0, 1))
+
+cdplot(Failure~river_mile,data=levee)
+cdplot(Failure~channel_width,data=levee)
+cdplot(Failure~floodway_width,data=levee)
+cdplot(Failure~constriction_factor,data=levee)
+cdplot(Failure~sinuosity,data=levee)
+cdplot(Failure~dredging,data=levee)
+
+```
+```{r}
+# Categorical data and boolean
+ggplot(levee, aes(x = factor(levee$borrow_pit,labels=c(0, 1)), y = borrow_pit, fill = Failure)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "borrow pits", y = "Failure", fill = "failure") +
+  theme_minimal()
+```
+
+```{r}
+# Load ggplot2 package
+library(ggplot2)
+
+# Example data
+data <- data.frame(
+  Gender = rep(c("male", "female"), each = 2),
+  any.event = rep(c("no", "yes"), times = 2),
+  count = c(200, 50, 300, 100)
+)
+
+# Create vertical bar plot
+ggplot(data, aes(x = Gender, y = count, fill = any.event)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Gender", y = "Any Event", fill = "any.event") +
+  theme_minimal()
+```
+
+
+```{r}
+summary(levee)
+
+# Plot all variables against flavor
+plot(Failure~., data = levee, pch = 16, col = gray(.5, .2))
+
+```
+
+
+
+## Formulate Hypotheses
+
+-   NULL hypothesis H0: the site characteristics do not predict the presence or absence of a levee failure
+-   ALT hypothesis H1: at least some of the site characteristics do predict levee failure
+
+The null hypothesis (Ho) tested was that these site characteristics do not predict the presence or absence of a levee failure. The alternative hypothesis (Ha) was that these site characteristics do predict levee failure. 
+    
+
+## Model Selection 
+
+```{r}
+model.null = glm(Failure ~ 1,
+                 data=levee)
+
+
+model.full = glm(Failure ~ year + river_mile + sediments + borrow_pit + factor(meander) +
+                 channel_width + floodway_width + constriction_factor + factor(land_cover) + 
+                 veg_width + sinuosity + dredging + revetement, 
+                 data=levee)
+    
+step(model.null,
+     scope = list(upper=model.full),
+             direction="both",
+             test="Chisq",
+             data=levee)
+```
+
+
+### Logistic Regression
+
+We can see that higher levels of each protein are associated with ESR values above 20. Now, fit a logistic regression model to the data with the glm function, including only the single variable fibrinogen:
+
+```{r, echo=FALSE}
+levee.glm <- glm(Failure ~ year + river_mile + sediments + borrow_pit + factor(meander) +
+                 channel_width + floodway_width + constriction_factor + factor(land_cover) + 
+                 veg_width + sinuosity + dredging + revetement, data = levee, family=binomial(link=logit))
+summary(levee.glm)
+```
+
+```{r, echo=FALSE}
+confint(levee.glm, parm = "sediments")
+```
+
+Confindence interval is small: not that much variability in response, as sediments is a categorical variable?
+
+
+ANova to? can also be used to compare null and full model
+
+```{r, echo=FALSE}
+anova(levee.glm, test="Chisq") #or LRT (Likelyhood Ratio Test)
+
+anova(levee.glm, model.null, test = "Chisq")
+```
+Coefficient of globulin not significantly different than 0 as the associated p-value is above the 0.05 threshold.
+
+
+
+### Interraction plot (only if we want to measure interaction, which we will!)
+
+```{r}
+interaction.plot(potato$growing_area,potato$storage_temp,potato$Flavor)
+#png("I3.png", height=400, width=500)
+interaction.plot(potato$storage_period,potato$storage_temp,potato$Flavor)
+
+```
+
+Since the lines are not parallel (different slopes), this shows the presence of interaction:
+-  between storage temp and storage period, some interaction.
+
+If we find a strong interraction maybe then investigate the levels which are significantly different: Tukey Honest Significant Differences (TukeyHSD).
+
+```{r}
+#TukeyHSD(aov(lm(Flavor ~ storage_period, data = potato)))
+
+model.factor = aov(Flavor ~ factor(storage_period), data = potato)
+posthoc <- TukeyHSD(model.factor, conf.level=.95)
+posthoc
+
+plot(posthoc)
+```
+
+
+### Diagnostic plots
+
+```{r}
+layout(matrix(1:4,ncol=2))
+par(pty="s",mar=c(3,1,2,1)+0.1)
+plot(model.full)
+```
+
+We see that there are no major violations from the model assumptions. The mean and variance of the residuals does not seem to be varying wrt. to the fitted values, some may say that the homoscedasticity assumption holds. Judging by the lower corner at the left of the QQ plot the residuals seem to be slightly sub-gaussian, but we may assume that the normality assumption holds (?).
+
+Plots above suggest the model assumption s hold approximately true: absolute value of standardized residuals do no texceed 3 (or 2) and similarly cook distances do not exceed 1.According to QQ-plot,there is not typical deviation from the oretical normal distribution. Although, it seems the assumption “Constant Erro r Variance” is mildly violated. (change, adapt)
+
+
+
+
+
+
+## Discussion
+
+Size not significant, what about cooking?
+
+### In the paper:
+
+The storage period was not significant, the flavor did not change. The storage temperature lead to changes in flavor and general potato quality. Size did not affect the flavor. The cooking method also affected the flavor. The area also slightly affected the flavor.
+
